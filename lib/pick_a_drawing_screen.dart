@@ -1,166 +1,362 @@
 import 'package:flutter/material.dart';
-
 import 'canvas_screen.dart';
+import 'models/drawing_template.dart';
+import 'painters/template_painters.dart';
+import 'widgets/bouncy_button.dart';
 
-class PickADrawingScreen extends StatelessWidget {
-  const PickADrawingScreen({super.key});
+class PickADrawingScreen extends StatefulWidget {
+  final TemplateCategory initialCategory;
+
+  const PickADrawingScreen({
+    super.key,
+    this.initialCategory = TemplateCategory.all,
+  });
+
+  @override
+  State<PickADrawingScreen> createState() => _PickADrawingScreenState();
+}
+
+class _PickADrawingScreenState extends State<PickADrawingScreen> {
+  late TemplateCategory _selectedCategory;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCategory = widget.initialCategory;
+  }
+
+  List<DrawingTemplate> get _filteredTemplates {
+    if (_selectedCategory == TemplateCategory.all) {
+      return DrawingTemplate.allTemplates;
+    }
+    return DrawingTemplate.allTemplates
+        .where((t) => t.category == _selectedCategory || t.isBlankCanvas)
+        .toList();
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Example animal data
-    final animals = [
-      {
-        'title': 'Gentle Elephant',
-        'image':
-            'https://lh3.googleusercontent.com/aida-public/AB6AXuDRPWcAie3HW5FbSF3bHrB2Mj6L-rm5iBNqDjrKYx5d08wM1B7kVL25YYutbtu2Eqd5WAVuyOxFF_Yu4rSeSJVw5t7_Co_7QLCR0uxTxily6fbdzL-RbDUn8kpRYWHnNOhEHuJt9ogFUKfQyueAi8aHki0DpcOxjSv0Z75stDLPDrKj-Q2vdj4DPsbRywm-8HxzsGFEgVqsauXqz2F9L21UUuGdZ6801w3ZdunulRv7Czm6KMmIziwQpDz3WWAjW-16FNLgCwhxM1A',
-        'label': 'Popular',
-        'featured': true,
-      },
-      {
-        'title': 'Tall Giraffe',
-        'image':
-            'https://lh3.googleusercontent.com/aida-public/AB6AXuAXvrTzSHX_JNE5vx_V5jlUZOEHeCHPIkgOGsuHjU9kFk88MdsZcEg4tCkxlDzaayuZsnDYTMnobzXNpKsuT43CwHuXvR2wNVRWuxwKNu7tcVQ33ljJ8pfONb0N9U7dn6YznTsLiIXDi3tdZT-x1VGXuLmA6fgeogqQwUXyCI3gJG8O_3RJcmaphZZ4eblJ3m2ZI-sBoYOhOFge3bFuxh1gTwlMNNVCmliusHBWEU4WhtQDlb3PYZssRxR3W0yNm4pNoZu4zIWcZCc',
-        'label': null,
-        'featured': false,
-      },
-      // Add more animals...
-    ];
-
     return Scaffold(
-      backgroundColor: Color(0xFFFDFFD9), // Use your theme color
-      appBar: AppBar(
-        backgroundColor: Color(0xFFFDFFD9),
-        elevation: 0,
-        title: Text(
-          'Animals',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF776300),
+      backgroundColor: const Color(0xFFFDFDD9),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(74),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFFEEB),
+            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
           ),
-        ),
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Color(0xFF776300)),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.settings, color: Color(0xFF776300)),
-            onPressed: () {},
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      BouncyButton(
+                        padding: const EdgeInsets.all(10),
+                        color: const Color(0xFFFFD709),
+                        borderRadius: BorderRadius.circular(16),
+                        elevation: 3,
+                        onPressed: () => Navigator.pop(context),
+                        child: const Icon(Icons.arrow_back, color: Color(0xFF5B4B00)),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Pick a Drawing! 🎨',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF776300),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD709).withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${_filteredTemplates.length} pages',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF5B4B00),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ],
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(bottom: Radius.circular(40)),
         ),
       ),
-      body: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 32, 16, 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Pick a Friend to Draw!',
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+      body: Column(
+        children: [
+          const SizedBox(height: 12),
+          // Category Filter Chips
+          _buildCategoryChips(),
+          const SizedBox(height: 12),
+
+          // Template Grid
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final crossAxisCount = constraints.maxWidth > 700 ? 3 : 2;
+                return GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: crossAxisCount,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 20,
+                    childAspectRatio: 0.78,
+                  ),
+                  itemCount: _filteredTemplates.length,
+                  itemBuilder: (context, index) {
+                    final template = _filteredTemplates[index];
+                    return _buildTemplateCard(context, template);
+                  },
+                );
+              },
             ),
-            SizedBox(height: 8),
-            Text(
-              'Select your favorite animal and start coloring.',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            SizedBox(height: 24),
-            Expanded(
-              child: GridView.builder(
-                itemCount: animals.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2, // Adjust for responsiveness
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 1.1,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryChips() {
+    final categories = [
+      {'category': TemplateCategory.all, 'label': '🌟 All'},
+      {'category': TemplateCategory.animals, 'label': '🦁 Animals'},
+      {'category': TemplateCategory.space, 'label': '🚀 Space'},
+      {'category': TemplateCategory.ocean, 'label': '🐬 Ocean'},
+      {'category': TemplateCategory.fantasy, 'label': '🦖 Fantasy'},
+    ];
+
+    return SizedBox(
+      height: 44,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        itemCount: categories.length,
+        itemBuilder: (context, index) {
+          final cat = categories[index]['category'] as TemplateCategory;
+          final label = categories[index]['label'] as String;
+          final isSelected = _selectedCategory == cat;
+
+          return GestureDetector(
+            onTap: () => setState(() => _selectedCategory = cat),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              margin: const EdgeInsets.only(right: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFFFFD709) : const Color(0xFFFFFEEB),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isSelected ? const Color(0xFF776300) : Colors.black12,
+                  width: isSelected ? 2 : 1,
                 ),
-                itemBuilder: (context, index) {
-                  final animal = animals[index] as Map<String, dynamic>;
-                  final isFeatured = animal['featured'] as bool;
-                  final label = animal['label'] as String?;
-                  final title = animal['title'] as String;
-                  final image = animal['image'] as String;
-                  return Card(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: const Color(0xFFFFD709).withValues(alpha: 0.4),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Center(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+                    fontSize: 14,
+                    color: const Color(0xFF363A18),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTemplateCard(BuildContext context, DrawingTemplate template) {
+    return GestureDetector(
+      onTap: () => _openCanvas(context, template),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(
+            color: template.isDailyChallenge
+                ? const Color(0xFFFFD709)
+                : const Color(0xFFFFE082),
+            width: template.isDailyChallenge ? 4 : 2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header Badge
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: template.accentColor.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        template.difficulty,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF363A18),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    elevation: isFeatured ? 8 : 2,
-                    color: isFeatured ? Color(0xFFF9FEC8) : Colors.white,
-                    child: InkWell(
-                      onTap: () {
-                        // Navigate to drawing screen
-                      },
-                      borderRadius: BorderRadius.circular(24),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            if (label != null)
-                              Container(
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Color(0xFFFF9288),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: Text(
-                                  label,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            Expanded(
-                              child: Image.network(image, fit: BoxFit.contain),
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              title,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Color(0xFFFFD709),
-                                foregroundColor: Color(0xFF5B4B00),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const CanvasScreen(),
-                                  ),
-                                );
-                              },
-                              child: Text('Color Me'),
-                            ),
-                          ],
+                  ),
+                  if (template.isDailyChallenge) ...[
+                    const SizedBox(width: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF5252),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        'Daily 🔥',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
                         ),
                       ),
                     ),
-                  );
-                },
+                  ],
+                ],
+              ),
+            ),
+
+            // Vector Outline Preview
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Center(
+                  child: template.isBlankCanvas
+                      ? const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('✏️', style: TextStyle(fontSize: 48)),
+                            SizedBox(height: 6),
+                            Text(
+                              'Free Draw',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF776300),
+                              ),
+                            ),
+                          ],
+                        )
+                      : AspectRatio(
+                          aspectRatio: 1.0,
+                          child: TemplateOutlineWidget(
+                            templateId: template.id,
+                            strokeWidth: 3.5,
+                          ),
+                        ),
+                ),
+              ),
+            ),
+
+            // Title & Bouncy Action Button
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              decoration: const BoxDecoration(
+                color: Color(0xFFFFFEEB),
+                borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    template.title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                      color: Color(0xFF363A18),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 8),
+                  BouncyButton(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    color: const Color(0xFFFFD709),
+                    borderWidth: 1.5,
+                    borderColor: const Color(0xFF776300),
+                    borderRadius: BorderRadius.circular(16),
+                    elevation: 2,
+                    onPressed: () => _openCanvas(context, template),
+                    child: const Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.brush, size: 16, color: Color(0xFF5B4B00)),
+                          SizedBox(width: 4),
+                          Text(
+                            'Color Me!',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13,
+                              color: Color(0xFF5B4B00),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
         ),
       ),
-      // Add your custom BottomNavigationBar here
-      // floatingActionButton: ... (for the FAB)
+    );
+  }
+
+  void _openCanvas(BuildContext context, DrawingTemplate template) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CanvasScreen(template: template),
+      ),
     );
   }
 }

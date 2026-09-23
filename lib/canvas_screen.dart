@@ -1,121 +1,395 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:perfect_freehand/perfect_freehand.dart';
 
-class DrawingPoint {
-  List<Offset> points;
-  Color color;
-  double width;
-
-  DrawingPoint({required this.points, required this.color, this.width = 5.0});
-}
+import 'models/drawing_point.dart';
+import 'models/drawing_template.dart';
+import 'models/saved_artwork.dart';
+import 'painters/template_painters.dart';
+import 'services/gallery_service.dart';
+import 'widgets/bouncy_button.dart';
+import 'widgets/brush_size_dialog.dart';
+import 'widgets/confetti_celebration.dart';
+import 'widgets/sticker_sheet.dart';
 
 class CanvasScreen extends StatefulWidget {
-  const CanvasScreen({super.key});
+  final DrawingTemplate? template;
+
+  const CanvasScreen({super.key, this.template});
 
   @override
   State<CanvasScreen> createState() => _CanvasScreenState();
 }
 
 class _CanvasScreenState extends State<CanvasScreen> {
-  List<DrawingPoint> history = [];
-  DrawingPoint? currentDrawingPoint;
-  Color selectedColor = const Color(0xFFF44336); // Red as default
-  double strokeWidth = 5.0;
-  String selectedTool = 'brush'; // brush, fill, magic, erase
+  final GlobalKey _canvasKey = GlobalKey();
 
-  final List<Color> paletteColors = [
-    const Color(0xFFF44336), // Red
-    const Color(0xFFFF9800), // Orange
-    const Color(0xFFFFEB3B), // Yellow
-    const Color(0xFF4CAF50), // Green
-    const Color(0xFF2196F3), // Blue
-    const Color(0xFF9C27B0), // Purple
-    const Color(0xFFE91E63), // Pink
-    const Color(0xFF795548), // Brown
-    const Color(0xFFFFFFFF), // White
+  // History for Undo / Redo
+  final List<DrawingPoint> _strokes = [];
+  final List<DrawingPoint> _undoneStrokes = [];
+  final List<StickerItem> _stickers = [];
+  final List<StickerItem> _undoneStickers = [];
+
+  DrawingPoint? _currentPoint;
+  Color _selectedColor = const Color(0xFFFF5252); // Bright red default
+  double _strokeWidth = 12.0; // Medium default
+  ToolType _currentTool = ToolType.brush;
+  String? _selectedStickerEmoji;
+  double _rainbowHue = 0.0;
+
+  final List<Color> _paletteColors = const [
+    Color(0xFFFF5252), // Bright Red
+    Color(0xFFFF7A00), // Orange
+    Color(0xFFFFD709), // Sunny Yellow
+    Color(0xFF76FF03), // Lime Green
+    Color(0xFF00E676), // Bright Green
+    Color(0xFF00E5FF), // Aqua
+    Color(0xFF2979FF), // Sky Blue
+    Color(0xFF651FFF), // Indigo
+    Color(0xFFD500F9), // Purple
+    Color(0xFFFF4081), // Pink
+    Color(0xFFFF80AB), // Soft Pink
+    Color(0xFF8D6E63), // Brown
+    Color(0xFF37474F), // Slate Charcoal
+    Color(0xFFFFFFFF), // White
   ];
+
+  DrawingTemplate get _template =>
+      widget.template ?? DrawingTemplate.allTemplates.first;
+
+  void _onPanStart(DragStartDetails details) {
+    if (_currentTool == ToolType.stamp) {
+      if (_selectedStickerEmoji != null) {
+        setState(() {
+          _stickers.add(
+            StickerItem(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              emoji: _selectedStickerEmoji!,
+              label: 'Sticker',
+              position: details.localPosition,
+            ),
+          );
+          _undoneStickers.clear();
+        });
+      }
+      return;
+    }
+
+    setState(() {
+      Color strokeColor = _selectedColor;
+      if (_currentTool == ToolType.eraser) {
+        strokeColor = const Color(0xFFFFFEEB); // Match canvas paper color
+      } else if (_currentTool == ToolType.rainbow) {
+        strokeColor = HSVColor.fromAHSV(1.0, _rainbowHue, 1.0, 1.0).toColor();
+        _rainbowHue = (_rainbowHue + 15) % 360;
+      }
+
+      _currentPoint = DrawingPoint(
+        points: [details.localPosition],
+        color: strokeColor,
+        width: _currentTool == ToolType.eraser ? _strokeWidth * 1.8 : _strokeWidth,
+        toolType: _currentTool,
+      );
+
+      _strokes.add(_currentPoint!);
+      _undoneStrokes.clear();
+    });
+  }
+
+  void _onPanUpdate(DragUpdateDetails details) {
+    if (_currentTool == ToolType.stamp || _currentPoint == null) return;
+
+    setState(() {
+      _currentPoint!.points.add(details.localPosition);
+
+      // Rainbow magic brush continuously cycles colors!
+      if (_currentTool == ToolType.rainbow) {
+        _rainbowHue = (_rainbowHue + 4) % 360;
+      }
+    });
+  }
+
+  void _onPanEnd(DragEndDetails details) {
+    _currentPoint = null;
+  }
+
+  void _undo() {
+    setState(() {
+      if (_strokes.isNotEmpty) {
+        _undoneStrokes.add(_strokes.removeLast());
+      } else if (_stickers.isNotEmpty) {
+        _undoneStickers.add(_stickers.removeLast());
+      }
+    });
+  }
+
+  void _redo() {
+    setState(() {
+      if (_undoneStrokes.isNotEmpty) {
+        _strokes.add(_undoneStrokes.removeLast());
+      } else if (_undoneStickers.isNotEmpty) {
+        _stickers.add(_undoneStickers.removeLast());
+      }
+    });
+  }
+
+  void _clearCanvas() {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        backgroundColor: const Color(0xFFFFFEEB),
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('🧼', style: TextStyle(fontSize: 44)),
+              const SizedBox(height: 12),
+              const Text(
+                'Start Over?',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF363A18),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Do you want to clean your canvas and start fresh?',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFF776300), fontSize: 14),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  BouncyButton(
+                    color: Colors.white,
+                    borderWidth: 1.5,
+                    borderColor: Colors.black26,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                  BouncyButton(
+                    color: Colors.redAccent,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    onPressed: () {
+                      setState(() {
+                        _strokes.clear();
+                        _undoneStrokes.clear();
+                        _stickers.clear();
+                        _undoneStickers.clear();
+                      });
+                      Navigator.pop(ctx);
+                    },
+                    child: const Text(
+                      'Clear 🎨',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleDone() async {
+    try {
+      final boundary = _canvasKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
+      ui.Image? image;
+      if (boundary != null) {
+        image = await boundary.toImage(pixelRatio: 2.0);
+      }
+      final byteData =
+          await image?.toByteData(format: ui.ImageByteFormat.png);
+      final bytes = byteData?.buffer.asUint8List();
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => ConfettiCelebrationDialog(
+          title: _template.title,
+          imageBytes: bytes,
+          onSave: () {
+            final saved = SavedArtwork(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              title: _template.title,
+              templateId: _template.id,
+              date: DateTime.now(),
+              imageBytes: bytes,
+              strokesCount: _strokes.length,
+              stickersCount: _stickers.length,
+            );
+            GalleryService().saveArtwork(saved);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Saved to My Masterpieces Gallery! ⭐'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          },
+          onContinue: () {},
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Great job coloring!')),
+      );
+    }
+  }
+
+  void _openSizeDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => BrushSizeDialog(
+        currentSize: _strokeWidth,
+        onSizeSelected: (size) => setState(() => _strokeWidth = size),
+      ),
+    );
+  }
+
+  void _openStickerSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StickerSheet(
+        onStickerSelected: (emoji) {
+          setState(() {
+            _selectedStickerEmoji = emoji;
+            _currentTool = ToolType.stamp;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Tap anywhere on the drawing to stamp $emoji!'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
     return Scaffold(
-      backgroundColor: colorScheme.surface,
+      backgroundColor: const Color(0xFFFDFDD9),
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(80),
+        preferredSize: const Size.fromHeight(74),
         child: Container(
           decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(
-              bottom: Radius.circular(40),
-            ),
+            color: const Color(0xFFFFFEEB),
+            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
             boxShadow: [
               BoxShadow(
-                color: colorScheme.onSurface.withOpacity(0.06),
-                blurRadius: 40,
-                offset: const Offset(0, 20),
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
               ),
             ],
           ),
           child: SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
                     children: [
-                      Material(
-                        color: colorScheme.surfaceContainerHighest,
-                        shape: const CircleBorder(),
-                        child: IconButton(
-                          icon: Icon(Icons.home, color: colorScheme.primary),
-                          onPressed: () => Navigator.pop(context),
-                        ),
+                      BouncyButton(
+                        padding: const EdgeInsets.all(10),
+                        color: const Color(0xFFFFD709),
+                        borderRadius: BorderRadius.circular(16),
+                        elevation: 3,
+                        onPressed: () => Navigator.pop(context),
+                        child: const Icon(Icons.arrow_back, color: Color(0xFF5B4B00)),
                       ),
                       const SizedBox(width: 12),
-                      Text(
-                        'Art Studio',
-                        style: textTheme.headlineMedium?.copyWith(
-                          color: colorScheme.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Row(
+                            children: [
+                              Text(_template.iconEmoji, style: const TextStyle(fontSize: 20)),
+                              const SizedBox(width: 6),
+                              Text(
+                                _template.title,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF776300),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Text(
+                            'Art Studio',
+                            style: TextStyle(fontSize: 11, color: Color(0xFF363A18)),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                   Row(
                     children: [
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: colorScheme.primaryContainer,
-                          foregroundColor: colorScheme.onPrimaryContainer,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
+                      // Undo Button
+                      IconButton(
+                        icon: Icon(
+                          Icons.undo,
+                          color: (_strokes.isNotEmpty || _stickers.isNotEmpty)
+                              ? const Color(0xFF776300)
+                              : Colors.black26,
                         ),
-                        onPressed: () {
-                          // Handle done action
-                        },
-                        child: const Text(
-                          'Done',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
+                        onPressed: (_strokes.isNotEmpty || _stickers.isNotEmpty) ? _undo : null,
                       ),
-                      const SizedBox(width: 12),
-                      Material(
-                        color: colorScheme.surfaceContainerHighest,
-                        shape: const CircleBorder(),
-                        child: IconButton(
-                          icon: Icon(
-                            Icons.settings,
-                            color: colorScheme.onSurface.withOpacity(0.6),
-                          ),
-                          onPressed: () {},
+                      // Redo Button
+                      IconButton(
+                        icon: Icon(
+                          Icons.redo,
+                          color: (_undoneStrokes.isNotEmpty || _undoneStickers.isNotEmpty)
+                              ? const Color(0xFF776300)
+                              : Colors.black26,
+                        ),
+                        onPressed: (_undoneStrokes.isNotEmpty || _undoneStickers.isNotEmpty) ? _redo : null,
+                      ),
+                      // Clear Canvas Button
+                      IconButton(
+                        icon: const Icon(Icons.cleaning_services_outlined, color: Color(0xFF776300)),
+                        onPressed: _clearCanvas,
+                      ),
+                      const SizedBox(width: 8),
+                      // Done Button
+                      BouncyButton(
+                        color: const Color(0xFFFFD709),
+                        borderWidth: 2,
+                        borderColor: const Color(0xFF776300),
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                        elevation: 4,
+                        onPressed: _handleDone,
+                        child: const Row(
+                          children: [
+                            Text(
+                              'Done',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                                color: Color(0xFF5B4B00),
+                              ),
+                            ),
+                            SizedBox(width: 4),
+                            Text('⭐', style: TextStyle(fontSize: 14)),
+                          ],
                         ),
                       ),
                     ],
@@ -131,286 +405,379 @@ class _CanvasScreenState extends State<CanvasScreen> {
           Expanded(
             child: Row(
               children: [
-                // Side Tool Dock
-                Container(
-                  width: 80,
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: colorScheme.onSurface.withOpacity(0.05),
-                        blurRadius: 10,
-                        offset: const Offset(4, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildToolButton('format_paint', 'Fill', 'fill'),
-                      const SizedBox(height: 16),
-                      _buildToolButton('auto_fix_high', 'Magic', 'magic'),
-                      const SizedBox(height: 16),
-                      _buildToolButton('ink_eraser', 'Erase', 'erase'),
-                    ],
-                  ),
-                ),
-                // Main Canvas Area
+                // Left Tool Dock
+                _buildLeftToolDock(),
+
+                // Center Drawing Canvas
                 Expanded(
                   child: Container(
-                    margin: const EdgeInsets.all(16),
+                    margin: const EdgeInsets.fromLTRB(8, 12, 16, 12),
                     decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainerLowest,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: colorScheme.surfaceContainer,
-                        width: 12,
-                      ),
+                      color: const Color(0xFFFFFEEB),
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(color: const Color(0xFFFFD709), width: 8),
                       boxShadow: [
                         BoxShadow(
-                          color: colorScheme.onSurface.withOpacity(0.1),
-                          blurRadius: 30,
-                          offset: const Offset(0, 10),
+                          color: Colors.black.withValues(alpha: 0.08),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
                         ),
                       ],
                     ),
-                    child: Stack(
-                      children: [
-                        // Background Image
-                        Center(
-                          child: Image.network(
-                            'https://lh3.googleusercontent.com/aida-public/AB6AXuBYN1nAGh9uBujvXeJfrvOhXoymMki9FpEngg2UuMbro-vLLFCNz4wjCxr23KNjKiOWGR5EzmlYifB8kL2ts8QZi0LpXd6_xlCBSM1cVyqAxmI72xDdxIpIOk1TklVthsWfZ0XwyAd_BXjmDsXHV9YMPeOm1I6NOIj_6eNldnjs4FGqIr9g8TWtHuDWwtRDnqp66bv_IQ72Zqt7FcH472lLiXfffpMjBd2_ZlKKBtJ54pCkl4oLqdUvWNGcMe7hiRqjg4cAspGDy3w',
-                            fit: BoxFit.contain,
-                            width: double.infinity,
-                            height: double.infinity,
-                          ),
-                        ),
-                        // Drawing Layer
-                        GestureDetector(
-                          onPanStart: selectedTool == 'brush'
-                              ? (details) {
-                                  setState(() {
-                                    currentDrawingPoint = DrawingPoint(
-                                      points: [details.localPosition],
-                                      color: selectedColor,
-                                      width: strokeWidth,
-                                    );
-                                    if (currentDrawingPoint != null)
-                                      history.add(currentDrawingPoint!);
-                                  });
-                                }
-                              : null,
-                          onPanUpdate: selectedTool == 'brush'
-                              ? (details) {
-                                  setState(() {
-                                    currentDrawingPoint?.points.add(
-                                      details.localPosition,
-                                    );
-                                  });
-                                }
-                              : null,
-                          onPanEnd: selectedTool == 'brush'
-                              ? (_) => currentDrawingPoint = null
-                              : null,
-                          child: RepaintBoundary(
-                            child: CustomPaint(
-                              painter: DrawingPainter(drawingPoints: history),
-                              child: Container(),
-                            ),
-                          ),
-                        ),
-                        // Decorative Sparkle
-                        Positioned(
-                          top: 16,
-                          right: 16,
-                          child: Opacity(
-                            opacity: 0.2,
-                            child: Icon(
-                              Icons.stars,
-                              size: 48,
-                              color: colorScheme.primary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Bottom Color Palette
-          Container(
-            height: 120,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            decoration: BoxDecoration(
-              color: colorScheme.surfaceContainerLow.withOpacity(0.8),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(16),
-              ),
-            ),
-            child: Column(
-              children: [
-                Expanded(
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: paletteColors.length,
-                    itemBuilder: (context, index) {
-                      final color = paletteColors[index];
-                      final isSelected = selectedColor == color;
-                      return GestureDetector(
-                        onTap: () => setState(() => selectedColor = color),
-                        child: Container(
-                          width: 64,
-                          height: 64,
-                          margin: const EdgeInsets.symmetric(horizontal: 8),
-                          decoration: BoxDecoration(
-                            color: color,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 4),
-                            boxShadow: [
-                              BoxShadow(
-                                color: colorScheme.onSurface.withOpacity(0.2),
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: RepaintBoundary(
+                        key: _canvasKey,
+                        child: Stack(
+                          children: [
+                            // 1. Vector Template Underlay Guide (subtle guide)
+                            if (!_template.isBlankCanvas)
+                              Positioned.fill(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24.0),
+                                  child: TemplateOutlineWidget(
+                                    templateId: _template.id,
+                                    outlineColor: const Color(0xFFE8DFB8),
+                                    strokeWidth: 4.0,
+                                  ),
+                                ),
                               ),
-                            ],
-                          ),
-                          child: isSelected
-                              ? Container(
-                                  margin: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: colorScheme.primary,
-                                      width: 4,
+
+                            // 2. Gesture Drawing Surface (between fill and outline)
+                            Positioned.fill(
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onPanStart: _onPanStart,
+                                onPanUpdate: _onPanUpdate,
+                                onPanEnd: _onPanEnd,
+                                child: CustomPaint(
+                                  painter: KidsDrawingPainter(
+                                    strokes: _strokes,
+                                    currentPoint: _currentPoint,
+                                  ),
+                                  size: Size.infinite,
+                                ),
+                              ),
+                            ),
+
+                            // 3. Stickers Layer
+                            ..._stickers.map((sticker) {
+                              return Positioned(
+                                left: sticker.position.dx - 24,
+                                top: sticker.position.dy - 24,
+                                child: IgnorePointer(
+                                  child: Text(
+                                    sticker.emoji,
+                                    style: const TextStyle(fontSize: 44),
+                                  ),
+                                ),
+                              );
+                            }),
+
+                            // 4. Vector Cartoon Outline Layer (Thick crisp black cartoon lines over coloring)
+                            if (!_template.isBlankCanvas)
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(24.0),
+                                    child: TemplateOutlineWidget(
+                                      templateId: _template.id,
+                                      outlineColor: const Color(0xFF2D251E),
+                                      strokeWidth: 4.5,
+                                      fillShapes: false,
                                     ),
                                   ),
-                                )
-                              : null,
+                                ),
+                              ),
+                          ],
                         ),
-                      );
-                    },
-                  ),
-                ),
-                Container(
-                  width: 96,
-                  height: 8,
-                  margin: const EdgeInsets.only(top: 8),
-                  decoration: BoxDecoration(
-                    color: colorScheme.outlineVariant.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
+
+          // Bottom Kid Color Palette
+          _buildBottomPalette(),
         ],
       ),
     );
   }
 
-  Widget _buildToolButton(String icon, String label, String tool) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isSelected = selectedTool == tool;
-    return Column(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: isSelected
-                ? colorScheme.tertiaryContainer
-                : colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: colorScheme.tertiary.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
+  Widget _buildLeftToolDock() {
+    return Container(
+      width: 72,
+      margin: const EdgeInsets.fromLTRB(16, 12, 0, 12),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFEEB),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFFFD709), width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(2, 4),
+          ),
+        ],
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildToolItem(ToolType.brush, '🖌️', 'Marker'),
+            const SizedBox(height: 8),
+            _buildToolItem(ToolType.rainbow, '🌈', 'Magic'),
+            const SizedBox(height: 8),
+            _buildToolItem(ToolType.eraser, '🧼', 'Eraser'),
+            const SizedBox(height: 8),
+            _buildToolItem(ToolType.stamp, '⭐', 'Stamp', onTap: _openStickerSheet),
+            const Divider(indent: 12, endIndent: 12, color: Colors.black12, height: 16),
+            // Size Picker Tool
+            GestureDetector(
+              onTap: _openSizeDialog,
+              child: Column(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD709).withValues(alpha: 0.4),
+                      shape: BoxShape.circle,
                     ),
-                  ]
-                : null,
-          ),
-          child: IconButton(
-            icon: Icon(
-              _getIconData(icon),
-              color: isSelected
-                  ? colorScheme.onTertiaryContainer
-                  : colorScheme.onSurfaceVariant,
+                    child: Center(
+                      child: Container(
+                        width: _strokeWidth.clamp(6.0, 22.0),
+                        height: _strokeWidth.clamp(6.0, 22.0),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF363A18),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Size',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF363A18),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            onPressed: () => setState(() => selectedTool = tool),
-          ),
+          ],
         ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
+      ),
     );
   }
 
-  IconData _getIconData(String iconName) {
-    switch (iconName) {
-      case 'format_paint':
-        return Icons.format_paint;
-      case 'auto_fix_high':
-        return Icons.auto_fix_high;
-      case 'ink_eraser':
-        return Icons.clear;
-      default:
-        return Icons.brush;
-    }
+  Widget _buildToolItem(
+    ToolType tool,
+    String emoji,
+    String label, {
+    VoidCallback? onTap,
+  }) {
+    final isSelected = _currentTool == tool;
+    return GestureDetector(
+      onTap: () {
+        if (onTap != null) {
+          onTap();
+        } else {
+          setState(() => _currentTool = tool);
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFFFD709) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          border: isSelected ? Border.all(color: const Color(0xFF776300), width: 2) : null,
+        ),
+        child: Column(
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 26)),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+                color: const Color(0xFF363A18),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomPalette() {
+    return Container(
+      height: 90,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFEEB),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        border: Border.all(color: const Color(0xFFFFD709), width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: _paletteColors.length + 1,
+        itemBuilder: (context, index) {
+          // Index 0: Rainbow Magic Quick Swatch
+          if (index == 0) {
+            final isRainbowSelected = _currentTool == ToolType.rainbow;
+            return GestureDetector(
+              onTap: () {
+                setState(() => _currentTool = ToolType.rainbow);
+              },
+              child: Container(
+                width: 56,
+                height: 56,
+                margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                decoration: BoxDecoration(
+                  gradient: const SweepGradient(
+                    colors: [
+                      Colors.red,
+                      Colors.orange,
+                      Colors.yellow,
+                      Colors.green,
+                      Colors.blue,
+                      Colors.purple,
+                      Colors.red,
+                    ],
+                  ),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isRainbowSelected ? const Color(0xFF776300) : Colors.white,
+                    width: isRainbowSelected ? 4 : 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: const Center(
+                  child: Text('🌈', style: TextStyle(fontSize: 22)),
+                ),
+              ),
+            );
+          }
+
+          final color = _paletteColors[index - 1];
+          final isSelected = _selectedColor == color && _currentTool != ToolType.rainbow && _currentTool != ToolType.eraser;
+
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedColor = color;
+                if (_currentTool == ToolType.eraser || _currentTool == ToolType.rainbow) {
+                  _currentTool = ToolType.brush;
+                }
+              });
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: isSelected ? 58 : 50,
+              height: isSelected ? 58 : 50,
+              margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isSelected ? const Color(0xFF776300) : Colors.white,
+                  width: isSelected ? 4.5 : 2.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: isSelected
+                  ? const Center(
+                      child: Icon(Icons.check, color: Colors.white, size: 24),
+                    )
+                  : null,
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 
-class DrawingPainter extends CustomPainter {
-  final List<DrawingPoint> drawingPoints;
+class KidsDrawingPainter extends CustomPainter {
+  final List<DrawingPoint> strokes;
+  final DrawingPoint? currentPoint;
 
-  DrawingPainter({required this.drawingPoints});
+  KidsDrawingPainter({
+    required this.strokes,
+    this.currentPoint,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (var drawingPoint in drawingPoints) {
-      final paint = Paint()
-        ..color = drawingPoint.color
-        ..isAntiAlias = true
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round;
+    for (final stroke in strokes) {
+      _paintStroke(canvas, stroke);
+    }
+    if (currentPoint != null) {
+      _paintStroke(canvas, currentPoint!);
+    }
+  }
 
-      // Using perfect_freehand to generate a smooth path from points
-      final outlinePoints = getStroke(
-        drawingPoint.points.map((e) => PointVector(e.dx, e.dy)).toList(),
-        options: StrokeOptions(
-          size: drawingPoint.width,
-          thinning: 0.5,
-          smoothing: 0.5,
-          streamline: 0.5,
-        ),
-      );
+  void _paintStroke(Canvas canvas, DrawingPoint stroke) {
+    if (stroke.points.isEmpty) return;
 
-      final path = Path();
-      if (outlinePoints.isNotEmpty) {
-        path.moveTo(outlinePoints[0].dx, outlinePoints[0].dy);
-        for (int i = 1; i < outlinePoints.length; i++) {
-          path.lineTo(outlinePoints[i].dx, outlinePoints[i].dy);
-        }
-        path.close();
-        canvas.drawPath(path, paint);
+    final paint = Paint()
+      ..color = stroke.color
+      ..isAntiAlias = true
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    if (stroke.points.length == 1) {
+      canvas.drawCircle(stroke.points.first, stroke.width / 2, paint);
+      return;
+    }
+
+    final outlinePoints = getStroke(
+      stroke.points.map((p) => PointVector(p.dx, p.dy)).toList(),
+      options: StrokeOptions(
+        size: stroke.width,
+        thinning: 0.3,
+        smoothing: 0.6,
+        streamline: 0.4,
+      ),
+    );
+
+    if (outlinePoints.isNotEmpty) {
+      final path = Path()..moveTo(outlinePoints[0].dx, outlinePoints[0].dy);
+      for (int i = 1; i < outlinePoints.length; i++) {
+        path.lineTo(outlinePoints[i].dx, outlinePoints[i].dy);
       }
+      path.close();
+      canvas.drawPath(path, paint);
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant KidsDrawingPainter oldDelegate) => true;
 }
